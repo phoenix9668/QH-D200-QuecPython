@@ -19,12 +19,13 @@ PROJECT_VERSION = "1.0.0"
 
 checknet = checkNet.CheckNetwork(PROJECT_NAME, PROJECT_VERSION)
 TaskEnable = True  # 调用disconnect后会通过该状态回收线程资源
-device_address = 0xFE
+do_device_address = 0xFE
+humiture_device_address = 0x10
 msg_id = 0
 state = 0
 mqtt_sub_msg = {}
 
-log.basicConfig(level=log.INFO)
+log.basicConfig(level=log.DEBUG)
 app_log = log.getLogger("app_log")
 
 
@@ -182,7 +183,8 @@ class Uart2(object):
             self.uartRead(para[2])
 
     def uartWrite(self, msg):
-        app_log.debug("Write msg:{}".format(msg))
+        hex_msg = [hex(x) for x in msg]
+        app_log.debug("Write msg:{}".format(hex_msg))
         self.uart.write(msg)
 
     def uartRead(self, len):
@@ -194,8 +196,9 @@ class Uart2(object):
 
 
 class ModbusRTU:
-    def __init__(self, device_address):
-        self.device_address = device_address
+    def __init__(self, do_device_address, humiture_device_address):
+        self.do_device_address = do_device_address
+        self.humiture_device_address = humiture_device_address
         self.relay1_status = 0
         self.relay2_status = 0
         self.relay3_status = 0
@@ -204,6 +207,8 @@ class ModbusRTU:
         self.relay6_status = 0
         self.relay7_status = 0
         self.relay8_status = 0
+        self.temperature = 0
+        self.humidity = 0
 
     def calculate_crc(self, data):
         crc = 0xFFFF
@@ -220,27 +225,29 @@ class ModbusRTU:
     def reverse_crc(self, crc):
         return ((crc & 0xFF) << 8) | ((crc >> 8) & 0xFF)
 
-    def build_message(self, function_code, coil_address, value):
+    def build_message(self, device_address, function_code, coil_address, value):
         # 构建 Modbus 请求消息
         message = ustruct.pack(
-            '>BBHH', self.device_address, function_code, coil_address, value)
+            '>BBHH', device_address, function_code, coil_address, value)
+        # 计算 CRC 校验码
+        crc = self.calculate_crc(message)
+        crc_bytes = ustruct.pack('<H', crc)
+        app_log.debug("build_message:{}".format(
+            ['0x{:02X}'.format(b) for b in (message + crc_bytes)]))
+        return message + crc_bytes
+
+    def build_do_all_message(self, function_code, coil_address, coil_number, command_bytes, value):
+        # 构建 Modbus 请求消息
+        message = ustruct.pack(
+            '>BBHHBB', self.do_device_address, function_code, coil_address, coil_number, command_bytes, value)
         # 计算 CRC 校验码
         crc = self.calculate_crc(message)
         crc_bytes = ustruct.pack('<H', crc)
         return message + crc_bytes
 
-    def build_all_message(self, function_code, coil_address, coil_number, command_bytes, value):
-        # 构建 Modbus 请求消息
-        message = ustruct.pack(
-            '>BBHHBB', self.device_address, function_code, coil_address, coil_number, command_bytes, value)
-        # 计算 CRC 校验码
-        crc = self.calculate_crc(message)
-        crc_bytes = ustruct.pack('<H', crc)
-        return message + crc_bytes
-
-    def send_message(self, message, timeout=1000):
+    def send_message(self, message, timeout=50):
         uart_inst.uartWrite(message)
-        utime.sleep_ms(50)  # 等待响应的时间，可以根据需要调整
+        utime.sleep_ms(timeout)  # 等待响应的时间，可以根据需要调整
 
     def handle_response(self, data):
         if len(data) < 6:
@@ -252,6 +259,9 @@ class ModbusRTU:
         elif len(data) == 6:
             address, function_code, bytes_num, value, crc_received = ustruct.unpack(
                 '>BBBBH', data)
+        elif len(data) == 9:
+            address, function_code, bytes_num, humidity, temperature, crc_received = ustruct.unpack(
+                '>BBBHHH', data)
         else:
             app_log.error("The data is linked together")
             return
@@ -291,20 +301,34 @@ class ModbusRTU:
         elif function_code == 0x81:
             app_log.error("Relay query status failure: bytes_num=0x{:02X}, value=0x{:02X}".format(
                 bytes_num, value))
+        elif function_code == 0x03:
+            app_log.info("Humiture query successful: bytes_num=0x{:02X}, humidity=0x{:04X}, temperature=0x{:04X}".format(
+                bytes_num, humidity, temperature))
+            self.humidity = humidity
+            self.temperature = temperature
+            app_log.debug("humidity: {}".format(self.humidity))
+            app_log.debug("temperature: {}".format(self.temperature))
 
     def control_single_relay(self, relay_number, state):
         coil_address = relay_number - 1
         value = 0xFF00 if state else 0x0000
-        message = self.build_message(0x05, coil_address, value)
+        message = self.build_message(
+            self.do_device_address, 0x05, coil_address, value)
         self.send_message(message)
 
     def control_all_relay(self, state):
         value = 0xFF if state else 0x00
-        message = self.build_all_message(0x0f, 0x0000, 0x0008, 0x01, value)
+        message = self.build_do_all_message(0x0f, 0x0000, 0x0008, 0x01, value)
         self.send_message(message)
 
     def query_relay_status(self):
-        message = self.build_message(0x01, 0x0000, 0x0008)
+        message = self.build_message(
+            self.do_device_address, 0x01, 0x0000, 0x0008)
+        self.send_message(message)
+
+    def query_humiture_status(self):
+        message = self.build_message(
+            self.humiture_device_address, 0x03, 0x0000, 0x0002)
         self.send_message(message)
 
 
@@ -379,14 +403,15 @@ def process_relay_logic():
                 elif key == 'NO8':
                     modbus_rtu.control_single_relay(8, False)
 
+    # modbus_rtu.query_humiture_status()
     modbus_rtu.query_relay_status()
     msg_id += 1
     mqtt_client.publish(property_publish_topic.encode(
-        'utf-8'), msg_do_status.format(msg_id, modbus_rtu.relay1_status, modbus_rtu.relay2_status,
-                                       modbus_rtu.relay3_status, modbus_rtu.relay4_status,
-                                       modbus_rtu.relay5_status, modbus_rtu.relay6_status,
-                                       modbus_rtu.relay7_status, modbus_rtu.relay8_status).encode('utf-8'))
-
+        'utf-8'), msg_all_status.format(msg_id, modbus_rtu.relay1_status, modbus_rtu.relay2_status,
+                                        modbus_rtu.relay3_status, modbus_rtu.relay4_status,
+                                        modbus_rtu.relay5_status, modbus_rtu.relay6_status,
+                                        modbus_rtu.relay7_status, modbus_rtu.relay8_status,
+                                        modbus_rtu.temperature, modbus_rtu.humidity).encode('utf-8'))
     state = 0
     mqtt_sub_msg = {}
 
@@ -408,7 +433,8 @@ if __name__ == '__main__':
         app_log.info('Network connection successful!')
 
         uart_inst = Uart2()
-        modbus_rtu = ModbusRTU(device_address=device_address)
+        modbus_rtu = ModbusRTU(do_device_address=do_device_address,
+                               humiture_device_address=humiture_device_address)
         uart_inst.set_modbus_rtu_instance(modbus_rtu)
 
         _thread.start_new_thread(watch_dog_task, ())
@@ -476,7 +502,7 @@ if __name__ == '__main__':
                                 "method": "thing.event.property.post"
                              }}"""
 
-        msg_do_status = """{{
+        msg_all_status = """{{
                                 "id": "{0}",
                                 "version": "1.0",
                                 "params": {{
@@ -503,6 +529,12 @@ if __name__ == '__main__':
                                     }},
                                     "NO8": {{
                                         "value": {8}
+                                    }},
+                                    "temperature": {{
+                                        "value": {9}
+                                    }},
+                                    "humidity": {{
+                                        "value": {10}
                                     }}
                                 }},
                                 "method": "thing.event.property.post"
@@ -554,7 +586,7 @@ if __name__ == '__main__':
         while True:
             if state == 1:
                 process_relay_logic()
-            utime.sleep_ms(100)
+            utime.sleep_ms(50)
     else:
         app_log.error('Network connection failed! stagecode = {}, subcode = {}'.format(
             stagecode, subcode))
