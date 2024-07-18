@@ -20,7 +20,7 @@ PROJECT_VERSION = "1.0.0"
 checknet = checkNet.CheckNetwork(PROJECT_NAME, PROJECT_VERSION)
 TaskEnable = True  # 调用disconnect后会通过该状态回收线程资源
 do_device_address = 0xFE
-humiture_device_address = 0x10
+humiture_device_address = 0x01
 msg_id = 0
 state = 0
 mqtt_sub_msg = {}
@@ -250,6 +250,7 @@ class ModbusRTU:
         utime.sleep_ms(timeout)  # 等待响应的时间，可以根据需要调整
 
     def handle_response(self, data):
+        global msg_id
         if len(data) < 6:
             app_log.error("Invalid response length")
             return
@@ -298,16 +299,29 @@ class ModbusRTU:
             app_log.debug("Relay 6 Status: {}".format(self.relay6_status))
             app_log.debug("Relay 7 Status: {}".format(self.relay7_status))
             app_log.debug("Relay 8 Status: {}".format(self.relay8_status))
+            msg_id += 1
+            mqtt_client.publish(property_publish_topic.encode(
+                'utf-8'), msg_all_status.format(msg_id, modbus_rtu.relay1_status, modbus_rtu.relay2_status,
+                                                modbus_rtu.relay3_status, modbus_rtu.relay4_status,
+                                                modbus_rtu.relay5_status, modbus_rtu.relay6_status,
+                                                modbus_rtu.relay7_status, modbus_rtu.relay8_status).encode('utf-8'))
         elif function_code == 0x81:
             app_log.error("Relay query status failure: bytes_num=0x{:02X}, value=0x{:02X}".format(
                 bytes_num, value))
         elif function_code == 0x03:
             app_log.info("Humiture query successful: bytes_num=0x{:02X}, humidity=0x{:04X}, temperature=0x{:04X}".format(
                 bytes_num, humidity, temperature))
-            self.humidity = humidity
-            self.temperature = temperature
-            app_log.debug("humidity: {}".format(self.humidity))
-            app_log.debug("temperature: {}".format(self.temperature))
+            if humidity == 0x0000 or temperature == 0x0000:
+                app_log.error("Humiture query failure: bytes_num=0x{:02X}, humidity=0x{:04X}, temperature=0x{:04X}".format(
+                    bytes_num, humidity, temperature))
+            else:
+                self.humidity = humidity / 10
+                self.temperature = temperature / 10
+                app_log.debug("humidity: {}".format(self.humidity))
+                app_log.debug("temperature: {}".format(self.temperature))
+                msg_id += 1
+                mqtt_client.publish(property_publish_topic.encode(
+                    'utf-8'), msg_temperature_humidity.format(msg_id, modbus_rtu.temperature, modbus_rtu.humidity).encode('utf-8'))
 
     def control_single_relay(self, relay_number, state):
         coil_address = relay_number - 1
@@ -355,12 +369,26 @@ def sim_task():
         utime.sleep(7200)
 
 
+def humiture_task():
+    global msg_id
+    while True:
+        modbus_rtu.query_humiture_status()
+        utime.sleep(600)
+
+
 def process_relay_logic():
     global state, msg_id, mqtt_sub_msg
 
+    if not mqtt_sub_msg['method']:
+        app_log.error('method is empty')
+    elif 'thing.service.query_humiture' in mqtt_sub_msg['method']:
+        modbus_rtu.query_humiture_status()
+        state = 0
+        mqtt_sub_msg = {}
+        return
+
     if not mqtt_sub_msg['params']:
         app_log.error('params is empty')
-        return
     elif 'ALLNO' in mqtt_sub_msg['params']:
         if mqtt_sub_msg['params']['ALLNO'] == 1:
             modbus_rtu.control_all_relay(True)
@@ -403,15 +431,7 @@ def process_relay_logic():
                 elif key == 'NO8':
                     modbus_rtu.control_single_relay(8, False)
 
-    # modbus_rtu.query_humiture_status()
     modbus_rtu.query_relay_status()
-    msg_id += 1
-    mqtt_client.publish(property_publish_topic.encode(
-        'utf-8'), msg_all_status.format(msg_id, modbus_rtu.relay1_status, modbus_rtu.relay2_status,
-                                        modbus_rtu.relay3_status, modbus_rtu.relay4_status,
-                                        modbus_rtu.relay5_status, modbus_rtu.relay6_status,
-                                        modbus_rtu.relay7_status, modbus_rtu.relay8_status,
-                                        modbus_rtu.temperature, modbus_rtu.humidity).encode('utf-8'))
     state = 0
     mqtt_sub_msg = {}
 
@@ -529,12 +549,6 @@ if __name__ == '__main__':
                                     }},
                                     "NO8": {{
                                         "value": {8}
-                                    }},
-                                    "temperature": {{
-                                        "value": {9}
-                                    }},
-                                    "humidity": {{
-                                        "value": {10}
                                     }}
                                 }},
                                 "method": "thing.event.property.post"
@@ -543,8 +557,10 @@ if __name__ == '__main__':
         ProductKey = "he2myN7xfqd"  # 产品标识
         DeviceName = "QH-D200-485-001"  # 设备名称
 
-        property_subscribe_topic = "/sys" + "/" + ProductKey + "/" + \
+        property_subscribe_topic1 = "/sys" + "/" + ProductKey + "/" + \
             DeviceName + "/" + "thing/service/property/set"
+        property_subscribe_topic2 = "/sys" + "/" + ProductKey + "/" + \
+            DeviceName + "/" + "thing/service/query_humiture"
         property_publish_topic = "/sys" + "/" + ProductKey + "/" + \
             DeviceName + "/" + "thing/event/property/post"
 
@@ -571,8 +587,11 @@ if __name__ == '__main__':
 
         # 订阅主题
         app_log.info(
-            "Connected to aliyun, subscribed to: {}".format(property_subscribe_topic))
-        mqtt_client.subscribe(property_subscribe_topic.encode('utf-8'), qos=0)
+            "Connected to aliyun, subscribed to: {}".format(property_subscribe_topic1))
+        mqtt_client.subscribe(property_subscribe_topic1.encode('utf-8'), qos=0)
+        app_log.info(
+            "Connected to aliyun, subscribed to: {}".format(property_subscribe_topic2))
+        mqtt_client.subscribe(property_subscribe_topic2.encode('utf-8'), qos=0)
 
         msg_id += 1
         mqtt_client.publish(property_publish_topic.encode(
@@ -582,6 +601,7 @@ if __name__ == '__main__':
 
         _thread.start_new_thread(cell_location_task, ())
         _thread.start_new_thread(sim_task, ())
+        _thread.start_new_thread(humiture_task, ())
 
         while True:
             if state == 1:
