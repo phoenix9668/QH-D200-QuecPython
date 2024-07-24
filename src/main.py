@@ -370,16 +370,26 @@ def sim_task():
 
 
 def humiture_task():
-    global msg_id
     while True:
-        modbus_rtu.query_humiture_status()
         utime.sleep(600)
+        modbus_rtu.query_humiture_status()
+
+
+def mqtt_sub_cb(topic, msg):
+    global state, mqtt_sub_msg
+    app_log.info("Subscribe Recv: Topic={},Msg={}".format(
+        topic.decode(), msg.decode()))
+    mqtt_sub_msg = ujson.loads(msg.decode())
+    state = 1
+    app_log.debug(mqtt_sub_msg['params'])
 
 
 def process_relay_logic():
     global state, msg_id, mqtt_sub_msg
 
-    if not mqtt_sub_msg['method']:
+    if 'method' not in mqtt_sub_msg:
+        app_log.error('method is missing')
+    elif not mqtt_sub_msg['method']:
         app_log.error('method is empty')
     elif 'thing.service.query_humiture' in mqtt_sub_msg['method']:
         modbus_rtu.query_humiture_status()
@@ -387,7 +397,9 @@ def process_relay_logic():
         mqtt_sub_msg = {}
         return
 
-    if not mqtt_sub_msg['params']:
+    if 'params' not in mqtt_sub_msg:
+        app_log.error('params is missing')
+    elif not mqtt_sub_msg['params']:
         app_log.error('params is empty')
     elif 'ALLNO' in mqtt_sub_msg['params']:
         if mqtt_sub_msg['params']['ALLNO'] == 1:
@@ -434,15 +446,6 @@ def process_relay_logic():
     modbus_rtu.query_relay_status()
     state = 0
     mqtt_sub_msg = {}
-
-
-def mqtt_sub_cb(topic, msg):
-    global state, mqtt_sub_msg
-    app_log.info("Subscribe Recv: Topic={},Msg={}".format(
-        topic.decode(), msg.decode()))
-    mqtt_sub_msg = ujson.loads(msg.decode())
-    state = 1
-    app_log.debug(mqtt_sub_msg['params'])
 
 
 if __name__ == '__main__':
@@ -536,7 +539,7 @@ if __name__ == '__main__':
                                         "value": {3}
                                     }},
                                     "NO4": {{
-                                        "value": {4}    
+                                        "value": {4}
                                     }},
                                     "NO5": {{
                                         "value": {5}
@@ -554,23 +557,29 @@ if __name__ == '__main__':
                                 "method": "thing.event.property.post"
                              }}"""
 
-        ProductKey = "he2myN7xfqd"  # 产品标识
+        ProductKey = "k1lpuw8kM8O"  # 产品标识
         DeviceName = "QH-D200-485-001"  # 设备名称
+        # DeviceName = "QH-D200-485-002"  # 设备名称
 
-        property_subscribe_topic1 = "/sys" + "/" + ProductKey + "/" + \
+        property_subscribe_topic = "/sys" + "/" + ProductKey + "/" + \
             DeviceName + "/" + "thing/service/property/set"
-        property_subscribe_topic2 = "/sys" + "/" + ProductKey + "/" + \
-            DeviceName + "/" + "thing/service/query_humiture"
         property_publish_topic = "/sys" + "/" + ProductKey + "/" + \
             DeviceName + "/" + "thing/event/property/post"
 
         # 创建一个mqtt实例
-        mqtt_client = MqttClient(clientid="he2myN7xfqd.QH-D200-485-001|securemode=2,signmethod=hmacsha256,timestamp=1718692037263|",
-                                 server="iot-06z00dcnrlb8g5r.mqtt.iothub.aliyuncs.com",
+        mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-001|securemode=2,signmethod=hmacsha256,timestamp=1721715130261|",
+                                 server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
                                  port=1883,
-                                 user="QH-D200-485-001&he2myN7xfqd",
-                                 password="4c079c7ae6cb2801dfe6fb1e69433d4887f7584a659bf5d0bb37740f29625cef",
+                                 user="QH-D200-485-001&k1lpuw8kM8O",
+                                 password="f703f690e0e5c2508434d3bcd89f122f364f32a2a5e36f4606121dfc2241a480",
                                  keepalive=60, reconn=False)
+
+        # mqtt_client = MqttClient(clientid="he2myN7xfqd.QH-D200-485-002|securemode=2,signmethod=hmacsha256,timestamp=1721703468688|",
+        #                          server="iot-06z00dcnrlb8g5r.mqtt.iothub.aliyuncs.com",
+        #                          port=1883,
+        #                          user="QH-D200-485-002&he2myN7xfqd",
+        #                          password="b9af1837630a869cbc70acf992ac85f30cccd0a433e59a024bedacbaee0ba588",
+        #                          keepalive=60, reconn=False)
 
         def mqtt_err_cb(err):
             app_log.error("thread err:%s" % err)
@@ -587,11 +596,8 @@ if __name__ == '__main__':
 
         # 订阅主题
         app_log.info(
-            "Connected to aliyun, subscribed to: {}".format(property_subscribe_topic1))
-        mqtt_client.subscribe(property_subscribe_topic1.encode('utf-8'), qos=0)
-        app_log.info(
-            "Connected to aliyun, subscribed to: {}".format(property_subscribe_topic2))
-        mqtt_client.subscribe(property_subscribe_topic2.encode('utf-8'), qos=0)
+            "Connected to aliyun, subscribed to: {}".format(property_subscribe_topic))
+        mqtt_client.subscribe(property_subscribe_topic.encode('utf-8'), qos=0)
 
         msg_id += 1
         mqtt_client.publish(property_publish_topic.encode(
