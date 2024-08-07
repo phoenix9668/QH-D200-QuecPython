@@ -1,6 +1,7 @@
 from machine import UART
 from machine import Pin
 from umqtt import MQTTClient
+from misc import Power
 import dataCall
 import cellLocator
 import _thread
@@ -16,6 +17,8 @@ Work_Led = Pin(Pin.GPIO12, Pin.OUT, Pin.PULL_DISABLE, 1)
 
 PROJECT_NAME = "QuecPython_EC600U"
 PROJECT_VERSION = "1.0.0"
+# 用户需要配置的APN信息，根据实际情况修改
+usrConfig = {'apn': 'smgftyz.grevpdn.zj', 'username': '', 'password': ''}
 
 checknet = checkNet.CheckNetwork(PROJECT_NAME, PROJECT_VERSION)
 TaskEnable = True  # 调用disconnect后会通过该状态回收线程资源
@@ -369,6 +372,12 @@ def sim_task():
         utime.sleep(7200)
 
 
+def power_restart():
+    while True:
+        utime.sleep(14400)
+        Power.powerRestart()
+
+
 def humiture_task():
     while True:
         utime.sleep(600)
@@ -386,6 +395,13 @@ def mqtt_sub_cb(topic, msg):
 
 def process_relay_logic():
     global state, msg_id, mqtt_sub_msg
+
+    if 'code' in mqtt_sub_msg:
+        if mqtt_sub_msg['code'] == 200:
+            app_log.debug('post_reply, code is 200')
+            state = 0
+            mqtt_sub_msg = {}
+            return
 
     if 'method' not in mqtt_sub_msg:
         app_log.error('method is missing')
@@ -450,6 +466,22 @@ def process_relay_logic():
 
 if __name__ == '__main__':
     utime.sleep(5)
+    pdpCtx = dataCall.getPDPContext(1)
+    app_log.info("pdpCtx:{}".format(pdpCtx))
+    if pdpCtx != -1:
+        if pdpCtx[1] != usrConfig['apn']:
+            ret = dataCall.setPDPContext(
+                1, 0, usrConfig['apn'], usrConfig['username'], usrConfig['password'], 0)
+            if ret == 0:
+                app_log.info('APN config success.')
+                Power.powerRestart()
+            else:
+                app_log.info('APN config failed.')
+        else:
+            app_log.info('APN configured.')
+    else:
+        app_log.info('get PDP Context failed.')
+
     checknet.poweron_print_once()
     stagecode, subcode = checknet.wait_network_connected(30)
     if stagecode == 3 and subcode == 1:
@@ -558,8 +590,12 @@ if __name__ == '__main__':
                              }}"""
 
         ProductKey = "k1lpuw8kM8O"  # 产品标识
-        DeviceName = "QH-D200-485-001"  # 设备名称
+        # DeviceName = "QH-D200-485-001"  # 设备名称
         # DeviceName = "QH-D200-485-002"  # 设备名称
+        # DeviceName = "QH-D200-485-003"  # 设备名称
+        # DeviceName = "QH-D200-485-004"  # 设备名称
+        # DeviceName = "QH-D200-485-005"  # 设备名称
+        DeviceName = "QH-D200-485-006"  # 设备名称
 
         property_subscribe_topic = "/sys" + "/" + ProductKey + "/" + \
             DeviceName + "/" + "thing/service/property/set"
@@ -567,19 +603,47 @@ if __name__ == '__main__':
             DeviceName + "/" + "thing/event/property/post"
 
         # 创建一个mqtt实例
-        mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-001|securemode=2,signmethod=hmacsha256,timestamp=1721715130261|",
+        # mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-001|securemode=2,signmethod=hmacsha256,timestamp=1721809948760|",
+        #                          server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
+        #                          port=1883,
+        #                          user="QH-D200-485-001&k1lpuw8kM8O",
+        #                          password="edf945e46e6fde71febae6843d41b808bdb32d6672983f2142696e40d9148ff5",
+        #                          keepalive=60, reconn=False)
+
+        # mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-002|securemode=2,signmethod=hmacsha256,timestamp=1721980140395|",
+        #                          server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
+        #                          port=1883,
+        #                          user="QH-D200-485-002&k1lpuw8kM8O",
+        #                          password="0f70269947a9b2adbda87ac981fff9bb9ea5f212ae6ff667316199d3774fe369",
+        #                          keepalive=60, reconn=False)
+
+        # mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-003|securemode=2,signmethod=hmacsha256,timestamp=1722934767615|",
+        #                          server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
+        #                          port=1883,
+        #                          user="QH-D200-485-003&k1lpuw8kM8O",
+        #                          password="9516ef6dcb7660e678be2d4d258206efff03f28cb6360fe559f9a0e85fe7802b",
+        #                          keepalive=60, reconn=False)
+
+        # mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-004|securemode=2,signmethod=hmacsha256,timestamp=1722995169908|",
+        #                          server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
+        #                          port=1883,
+        #                          user="QH-D200-485-004&k1lpuw8kM8O",
+        #                          password="9e5225e1c1519140a46c6a47ffa2e7c3096ab158e3660a9728ca3ee0f5969bee",
+        #                          keepalive=60, reconn=False)
+
+        # mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-005|securemode=2,signmethod=hmacsha256,timestamp=1722995243424|",
+        #                          server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
+        #                          port=1883,
+        #                          user="QH-D200-485-005&k1lpuw8kM8O",
+        #                          password="ba0ab4e907be169cfb63e86eb854957b4883df65dcaca702ef6d2fde962790dc",
+        #                          keepalive=60, reconn=False)
+
+        mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-006|securemode=2,signmethod=hmacsha256,timestamp=1722997119995|",
                                  server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
                                  port=1883,
-                                 user="QH-D200-485-001&k1lpuw8kM8O",
-                                 password="f703f690e0e5c2508434d3bcd89f122f364f32a2a5e36f4606121dfc2241a480",
+                                 user="QH-D200-485-006&k1lpuw8kM8O",
+                                 password="2fb1b34060a5d8271bb62e7f24899d79f33b4974545ba13b404e4393081aea5c",
                                  keepalive=60, reconn=False)
-
-        # mqtt_client = MqttClient(clientid="he2myN7xfqd.QH-D200-485-002|securemode=2,signmethod=hmacsha256,timestamp=1721703468688|",
-        #                          server="iot-06z00dcnrlb8g5r.mqtt.iothub.aliyuncs.com",
-        #                          port=1883,
-        #                          user="QH-D200-485-002&he2myN7xfqd",
-        #                          password="b9af1837630a869cbc70acf992ac85f30cccd0a433e59a024bedacbaee0ba588",
-        #                          keepalive=60, reconn=False)
 
         def mqtt_err_cb(err):
             app_log.error("thread err:%s" % err)
