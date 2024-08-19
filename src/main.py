@@ -18,12 +18,16 @@ Work_Led = Pin(Pin.GPIO12, Pin.OUT, Pin.PULL_DISABLE, 1)
 PROJECT_NAME = "QuecPython_EC600U"
 PROJECT_VERSION = "1.0.0"
 # 用户需要配置的APN信息，根据实际情况修改
-usrConfig = {'apn': 'smgftyz.grevpdn.zj', 'username': '', 'password': ''}
+usrConfig = {'apn': 'smgftyz.grevpdn.zj',
+             'username': '', 'password': ''}  # 电信卡
+# usrConfig = {'apn': 'shqnxx04.shm2mapn', 'username': '', 'password': ''}  # 联通卡
 
 checknet = checkNet.CheckNetwork(PROJECT_NAME, PROJECT_VERSION)
 TaskEnable = True  # 调用disconnect后会通过该状态回收线程资源
 do_device_address = 0xFE
 humiture_device_address = 0x01
+co2_device_address = 0x02
+nh3_device_address = 0x03
 msg_id = 0
 state = 0
 mqtt_sub_msg = {}
@@ -199,9 +203,11 @@ class Uart2(object):
 
 
 class ModbusRTU:
-    def __init__(self, do_device_address, humiture_device_address):
+    def __init__(self, do_device_address, humiture_device_address, co2_device_address, nh3_device_address):
         self.do_device_address = do_device_address
         self.humiture_device_address = humiture_device_address
+        self.co2_device_address = co2_device_address
+        self.nh3_device_address = nh3_device_address
         self.relay1_status = 0
         self.relay2_status = 0
         self.relay3_status = 0
@@ -212,6 +218,8 @@ class ModbusRTU:
         self.relay8_status = 0
         self.temperature = 0
         self.humidity = 0
+        self.co2 = 0
+        self.nh3 = 0
 
     def calculate_crc(self, data):
         crc = 0xFFFF
@@ -266,6 +274,9 @@ class ModbusRTU:
         elif len(data) == 9:
             address, function_code, bytes_num, humidity, temperature, crc_received = ustruct.unpack(
                 '>BBBHHH', data)
+        elif len(data) == 7:
+            address, function_code, bytes_num, value, crc_received = ustruct.unpack(
+                '>BBBHH', data)
         else:
             app_log.error("The data is linked together")
             return
@@ -304,27 +315,42 @@ class ModbusRTU:
             app_log.debug("Relay 8 Status: {}".format(self.relay8_status))
             msg_id += 1
             mqtt_client.publish(property_publish_topic.encode(
-                'utf-8'), msg_all_status.format(msg_id, modbus_rtu.relay1_status, modbus_rtu.relay2_status,
-                                                modbus_rtu.relay3_status, modbus_rtu.relay4_status,
-                                                modbus_rtu.relay5_status, modbus_rtu.relay6_status,
-                                                modbus_rtu.relay7_status, modbus_rtu.relay8_status).encode('utf-8'))
+                'utf-8'), msg_all_status.format(msg_id, self.relay1_status, self.relay2_status, self.relay3_status, self.relay4_status,
+                                                self.relay5_status, self.relay6_status, self.relay7_status, self.relay8_status).encode('utf-8'))
         elif function_code == 0x81:
             app_log.error("Relay query status failure: bytes_num=0x{:02X}, value=0x{:02X}".format(
                 bytes_num, value))
         elif function_code == 0x03:
-            app_log.info("Humiture query successful: bytes_num=0x{:02X}, humidity=0x{:04X}, temperature=0x{:04X}".format(
-                bytes_num, humidity, temperature))
-            if humidity == 0x0000 or temperature == 0x0000:
-                app_log.error("Humiture query failure: bytes_num=0x{:02X}, humidity=0x{:04X}, temperature=0x{:04X}".format(
+            if address == self.humiture_device_address:
+                app_log.info("Humiture query successful: bytes_num=0x{:02X}, humidity=0x{:04X}, temperature=0x{:04X}".format(
                     bytes_num, humidity, temperature))
-            else:
-                self.humidity = humidity / 10
-                self.temperature = temperature / 10
-                app_log.debug("humidity: {}".format(self.humidity))
-                app_log.debug("temperature: {}".format(self.temperature))
+                if humidity == 0x0000 or temperature == 0x0000:
+                    app_log.error("Humiture query failure: bytes_num=0x{:02X}, humidity=0x{:04X}, temperature=0x{:04X}".format(
+                        bytes_num, humidity, temperature))
+                else:
+                    self.humidity = humidity / 10
+                    self.temperature = temperature / 10
+                    app_log.debug("humidity: {}".format(self.humidity))
+                    app_log.debug("temperature: {}".format(self.temperature))
+                    msg_id += 1
+                    mqtt_client.publish(property_publish_topic.encode(
+                        'utf-8'), msg_temperature_humidity.format(msg_id, self.temperature, self.humidity).encode('utf-8'))
+            elif address == self.co2_device_address:
+                app_log.info("CO2 query successful: bytes_num=0x{:02X}, co2=0x{:04X}".format(
+                    bytes_num, value))
+                self.co2 = value
+                app_log.debug("CO2: {}".format(self.co2))
                 msg_id += 1
                 mqtt_client.publish(property_publish_topic.encode(
-                    'utf-8'), msg_temperature_humidity.format(msg_id, modbus_rtu.temperature, modbus_rtu.humidity).encode('utf-8'))
+                    'utf-8'), msg_co2.format(msg_id, self.co2).encode('utf-8'))
+            elif address == self.nh3_device_address:
+                app_log.info("NH3 query successful: bytes_num=0x{:02X}, nh3=0x{:04X}".format(
+                    bytes_num, value))
+                self.nh3 = value
+                app_log.debug("NH3: {}".format(self.nh3))
+                msg_id += 1
+                mqtt_client.publish(property_publish_topic.encode(
+                    'utf-8'), msg_nh3.format(msg_id, self.nh3).encode('utf-8'))
 
     def control_single_relay(self, relay_number, state):
         coil_address = relay_number - 1
@@ -346,6 +372,16 @@ class ModbusRTU:
     def query_humiture_status(self):
         message = self.build_message(
             self.humiture_device_address, 0x03, 0x0000, 0x0002)
+        self.send_message(message)
+
+    def query_co2_status(self):
+        message = self.build_message(
+            self.co2_device_address, 0x03, 0x0002, 0x0001)
+        self.send_message(message)
+
+    def query_nh3_status(self):
+        message = self.build_message(
+            self.nh3_device_address, 0x03, 0x0002, 0x0001)
         self.send_message(message)
 
 
@@ -384,6 +420,20 @@ def humiture_task():
         modbus_rtu.query_humiture_status()
 
 
+def co2_task():
+    utime.sleep(10)
+    while True:
+        utime.sleep(600)
+        modbus_rtu.query_co2_status()
+
+
+def nh3_task():
+    utime.sleep(20)
+    while True:
+        utime.sleep(600)
+        modbus_rtu.query_nh3_status()
+
+
 def mqtt_sub_cb(topic, msg):
     global state, mqtt_sub_msg
     app_log.info("Subscribe Recv: Topic={},Msg={}".format(
@@ -409,6 +459,16 @@ def process_relay_logic():
         app_log.error('method is empty')
     elif 'thing.service.query_humiture' in mqtt_sub_msg['method']:
         modbus_rtu.query_humiture_status()
+        state = 0
+        mqtt_sub_msg = {}
+        return
+    elif 'thing.service.query_co2' in mqtt_sub_msg['method']:
+        modbus_rtu.query_co2_status()
+        state = 0
+        mqtt_sub_msg = {}
+        return
+    elif 'thing.service.query_nh3' in mqtt_sub_msg['method']:
+        modbus_rtu.query_nh3_status()
         state = 0
         mqtt_sub_msg = {}
         return
@@ -489,7 +549,7 @@ if __name__ == '__main__':
 
         uart_inst = Uart2()
         modbus_rtu = ModbusRTU(do_device_address=do_device_address,
-                               humiture_device_address=humiture_device_address)
+                               humiture_device_address=humiture_device_address, co2_device_address=co2_device_address, nh3_device_address=nh3_device_address)
         uart_inst.set_modbus_rtu_instance(modbus_rtu)
 
         _thread.start_new_thread(watch_dog_task, ())
@@ -557,6 +617,28 @@ if __name__ == '__main__':
                                 "method": "thing.event.property.post"
                              }}"""
 
+        msg_co2 = """{{
+                                "id": "{0}",
+                                "version": "1.0",
+                                "params": {{
+                                    "CO2": {{
+                                        "value": {1}
+                                    }}
+                                }},
+                                "method": "thing.event.property.post"
+                             }}"""
+
+        msg_nh3 = """{{
+                                "id": "{0}",
+                                "version": "1.0",
+                                "params": {{
+                                    "NH3": {{
+                                        "value": {1}
+                                    }}
+                                }},
+                                "method": "thing.event.property.post"
+                             }}"""
+
         msg_all_status = """{{
                                 "id": "{0}",
                                 "version": "1.0",
@@ -592,10 +674,12 @@ if __name__ == '__main__':
         ProductKey = "k1lpuw8kM8O"  # 产品标识
         # DeviceName = "QH-D200-485-001"  # 设备名称
         # DeviceName = "QH-D200-485-002"  # 设备名称
-        # DeviceName = "QH-D200-485-003"  # 设备名称
+        DeviceName = "QH-D200-485-003"  # 设备名称
         # DeviceName = "QH-D200-485-004"  # 设备名称
         # DeviceName = "QH-D200-485-005"  # 设备名称
-        DeviceName = "QH-D200-485-006"  # 设备名称
+        # DeviceName = "QH-D200-485-006"  # 设备名称
+        # DeviceName = "QH-D200-485-007"  # 设备名称
+        # DeviceName = "QH-D200-485-008"  # 设备名称
 
         property_subscribe_topic = "/sys" + "/" + ProductKey + "/" + \
             DeviceName + "/" + "thing/service/property/set"
@@ -608,42 +692,56 @@ if __name__ == '__main__':
         #                          port=1883,
         #                          user="QH-D200-485-001&k1lpuw8kM8O",
         #                          password="edf945e46e6fde71febae6843d41b808bdb32d6672983f2142696e40d9148ff5",
-        #                          keepalive=60, reconn=False)
+        #                          keepalive=60, reconn=True)
 
         # mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-002|securemode=2,signmethod=hmacsha256,timestamp=1721980140395|",
         #                          server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
         #                          port=1883,
         #                          user="QH-D200-485-002&k1lpuw8kM8O",
         #                          password="0f70269947a9b2adbda87ac981fff9bb9ea5f212ae6ff667316199d3774fe369",
-        #                          keepalive=60, reconn=False)
+        #                          keepalive=60, reconn=True)
 
-        # mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-003|securemode=2,signmethod=hmacsha256,timestamp=1722934767615|",
-        #                          server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
-        #                          port=1883,
-        #                          user="QH-D200-485-003&k1lpuw8kM8O",
-        #                          password="9516ef6dcb7660e678be2d4d258206efff03f28cb6360fe559f9a0e85fe7802b",
-        #                          keepalive=60, reconn=False)
+        mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-003|securemode=2,signmethod=hmacsha256,timestamp=1722934767615|",
+                                 server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
+                                 port=1883,
+                                 user="QH-D200-485-003&k1lpuw8kM8O",
+                                 password="9516ef6dcb7660e678be2d4d258206efff03f28cb6360fe559f9a0e85fe7802b",
+                                 keepalive=60, reconn=True)
 
         # mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-004|securemode=2,signmethod=hmacsha256,timestamp=1722995169908|",
         #                          server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
         #                          port=1883,
         #                          user="QH-D200-485-004&k1lpuw8kM8O",
         #                          password="9e5225e1c1519140a46c6a47ffa2e7c3096ab158e3660a9728ca3ee0f5969bee",
-        #                          keepalive=60, reconn=False)
+        #                          keepalive=60, reconn=True)
 
         # mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-005|securemode=2,signmethod=hmacsha256,timestamp=1722995243424|",
         #                          server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
         #                          port=1883,
         #                          user="QH-D200-485-005&k1lpuw8kM8O",
         #                          password="ba0ab4e907be169cfb63e86eb854957b4883df65dcaca702ef6d2fde962790dc",
-        #                          keepalive=60, reconn=False)
+        #                          keepalive=60, reconn=True)
 
-        mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-006|securemode=2,signmethod=hmacsha256,timestamp=1722997119995|",
-                                 server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
-                                 port=1883,
-                                 user="QH-D200-485-006&k1lpuw8kM8O",
-                                 password="2fb1b34060a5d8271bb62e7f24899d79f33b4974545ba13b404e4393081aea5c",
-                                 keepalive=60, reconn=False)
+        # mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-006|securemode=2,signmethod=hmacsha256,timestamp=1722997119995|",
+        #                          server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
+        #                          port=1883,
+        #                          user="QH-D200-485-006&k1lpuw8kM8O",
+        #                          password="2fb1b34060a5d8271bb62e7f24899d79f33b4974545ba13b404e4393081aea5c",
+        #                          keepalive=60, reconn=True)
+
+        # mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-007|securemode=2,signmethod=hmacsha256,timestamp=1723190936330|",
+        #                          server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
+        #                          port=1883,
+        #                          user="QH-D200-485-007&k1lpuw8kM8O",
+        #                          password="76c6caf55995ed0d7c815f5fce0a98027eda9d395987b6152168a1d460928a68",
+        #                          keepalive=60, reconn=True)
+
+        # mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-008|securemode=2,signmethod=hmacsha256,timestamp=1723450452481|",
+        #                          server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
+        #                          port=1883,
+        #                          user="QH-D200-485-008&k1lpuw8kM8O",
+        #                          password="6db355f37c3871ffe031cb46b89ab2487f2272c5178e5e898ac490c2b13138a7",
+        #                          keepalive=60, reconn=True)
 
         def mqtt_err_cb(err):
             app_log.error("thread err:%s" % err)
@@ -672,6 +770,8 @@ if __name__ == '__main__':
         _thread.start_new_thread(cell_location_task, ())
         _thread.start_new_thread(sim_task, ())
         _thread.start_new_thread(humiture_task, ())
+        _thread.start_new_thread(co2_task, ())
+        _thread.start_new_thread(nh3_task, ())
 
         while True:
             if state == 1:
