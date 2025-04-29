@@ -15,11 +15,11 @@ import ujson
 
 Work_Led = Pin(Pin.GPIO12, Pin.OUT, Pin.PULL_DISABLE, 1)
 
-PROJECT_NAME = "QuecPython_EC600U"
+PROJECT_NAME = "QuecPython_EC600G"
 PROJECT_VERSION = "1.0.0"
 # 用户需要配置的APN信息，根据实际情况修改
-usrConfig = {'apn': 'smgftyz.grevpdn.zj',
-             'username': '', 'password': ''}  # 电信卡
+# usrConfig = {'apn': 'smgftyz.grevpdn.zj',
+#              'username': '', 'password': ''}  # 电信卡
 # usrConfig = {'apn': 'shqnxx04.shm2mapn', 'username': '', 'password': ''}  # 联通卡
 
 checknet = checkNet.CheckNetwork(PROJECT_NAME, PROJECT_VERSION)
@@ -45,11 +45,21 @@ def watch_dog_task():
         utime.sleep(10)
 
 
-class MqttClient():
+class MqttClient:
     # 说明：reconn该参数用于控制使用或关闭umqtt内部的重连机制，默认为True，使用内部重连机制。
     # 如需测试或使用外部重连机制可参考此示例代码，测试前需将reconn=False,否则默认会使用内部重连机制！
-    def __init__(self, clientid, server, port, user=None, password=None, keepalive=0, ssl=False, ssl_params={},
-                 reconn=True):
+    def __init__(
+        self,
+        clientid,
+        server,
+        port,
+        user=None,
+        password=None,
+        keepalive=0,
+        ssl=False,
+        ssl_params={},
+        reconn=True,
+    ):
         self.__clientid = clientid
         self.__pw = password
         self.__server = server
@@ -65,9 +75,17 @@ class MqttClient():
         # 创建互斥锁
         self.mp_lock = _thread.allocate_lock()
         # 创建类的时候初始化出mqtt对象
-        self.client = MQTTClient(self.__clientid, self.__server, self.__port, self.__uasename, self.__pw,
-                                 keepalive=self.__keepalive, ssl=self.__ssl, ssl_params=self.__ssl_params,
-                                 reconn=reconn)
+        self.client = MQTTClient(
+            self.__clientid,
+            self.__server,
+            self.__port,
+            self.__uasename,
+            self.__pw,
+            keepalive=self.__keepalive,
+            ssl=self.__ssl,
+            ssl_params=self.__ssl_params,
+            reconn=reconn,
+        )
 
     def connect(self):
         self.client.connect(clean_session=False)
@@ -175,7 +193,15 @@ class MqttClient():
 
 
 class Uart2(object):
-    def __init__(self, no=UART.UART2, bate=115200, data_bits=8, parity=0, stop_bits=1, flow_control=0):
+    def __init__(
+        self,
+        no=UART.UART2,
+        bate=115200,
+        data_bits=8,
+        parity=0,
+        stop_bits=1,
+        flow_control=0,
+    ):
         self.uart = UART(no, bate, data_bits, parity, stop_bits, flow_control)
         self.uart.control_485(UART.GPIO28, 0)
         self.uart.set_callback(self.callback)
@@ -186,7 +212,7 @@ class Uart2(object):
 
     def callback(self, para):
         app_log.debug("call para:{}".format(para))
-        if (0 == para[0]):
+        if 0 == para[0]:
             self.uartRead(para[2])
 
     def uartWrite(self, msg):
@@ -203,7 +229,13 @@ class Uart2(object):
 
 
 class ModbusRTU:
-    def __init__(self, do_device_address, humiture_device_address, co2_device_address, nh3_device_address):
+    def __init__(
+        self,
+        do_device_address,
+        humiture_device_address,
+        co2_device_address,
+        nh3_device_address,
+    ):
         self.do_device_address = do_device_address
         self.humiture_device_address = humiture_device_address
         self.co2_device_address = co2_device_address
@@ -239,21 +271,34 @@ class ModbusRTU:
     def build_message(self, device_address, function_code, coil_address, value):
         # 构建 Modbus 请求消息
         message = ustruct.pack(
-            '>BBHH', device_address, function_code, coil_address, value)
+            ">BBHH", device_address, function_code, coil_address, value
+        )
         # 计算 CRC 校验码
         crc = self.calculate_crc(message)
-        crc_bytes = ustruct.pack('<H', crc)
-        app_log.debug("build_message:{}".format(
-            ['0x{:02X}'.format(b) for b in (message + crc_bytes)]))
+        crc_bytes = ustruct.pack("<H", crc)
+        app_log.debug(
+            "build_message:{}".format(
+                ["0x{:02X}".format(b) for b in (message + crc_bytes)]
+            )
+        )
         return message + crc_bytes
 
-    def build_do_all_message(self, function_code, coil_address, coil_number, command_bytes, value):
+    def build_do_all_message(
+        self, function_code, coil_address, coil_number, command_bytes, value
+    ):
         # 构建 Modbus 请求消息
         message = ustruct.pack(
-            '>BBHHBB', self.do_device_address, function_code, coil_address, coil_number, command_bytes, value)
+            ">BBHHBB",
+            self.do_device_address,
+            function_code,
+            coil_address,
+            coil_number,
+            command_bytes,
+            value,
+        )
         # 计算 CRC 校验码
         crc = self.calculate_crc(message)
-        crc_bytes = ustruct.pack('<H', crc)
+        crc_bytes = ustruct.pack("<H", crc)
         return message + crc_bytes
 
     def send_message(self, message, timeout=50):
@@ -267,37 +312,56 @@ class ModbusRTU:
             return
         elif len(data) == 8:
             address, function_code, coil_address, value, crc_received = ustruct.unpack(
-                '>BBHHH', data)
+                ">BBHHH", data
+            )
         elif len(data) == 6:
             address, function_code, bytes_num, value, crc_received = ustruct.unpack(
-                '>BBBBH', data)
+                ">BBBBH", data
+            )
         elif len(data) == 9:
-            address, function_code, bytes_num, humidity, temperature, crc_received = ustruct.unpack(
-                '>BBBHHH', data)
+            address, function_code, bytes_num, humidity, temperature, crc_received = (
+                ustruct.unpack(">BBBHHH", data)
+            )
         elif len(data) == 7:
             address, function_code, bytes_num, value, crc_received = ustruct.unpack(
-                '>BBBHH', data)
+                ">BBBHH", data
+            )
         else:
             app_log.error("The data is linked together")
             return
         crc_calculated = self.calculate_crc(data[:-2])
         crc_calculated_swapped = self.reverse_crc(crc_calculated)
         if crc_received != crc_calculated_swapped:
-            app_log.error("CRC mismatch: received=0x{:04X}, calculated=0x{:04X}".format(
-                crc_received, crc_calculated))
+            app_log.error(
+                "CRC mismatch: received=0x{:04X}, calculated=0x{:04X}".format(
+                    crc_received, crc_calculated
+                )
+            )
         elif function_code == 0x05:
-            app_log.info("Relay control successful: coil_address=0x{:04X}, value=0x{:04X}".format(
-                coil_address, value))
-        elif function_code == 0x0f:
-            app_log.info("Relay all control successful: coil_address=0x{:04X}, value=0x{:04X}".format(
-                coil_address, value))
+            app_log.info(
+                "Relay control successful: coil_address=0x{:04X}, value=0x{:04X}".format(
+                    coil_address, value
+                )
+            )
+        elif function_code == 0x0F:
+            app_log.info(
+                "Relay all control successful: coil_address=0x{:04X}, value=0x{:04X}".format(
+                    coil_address, value
+                )
+            )
         elif function_code == 0x82:
-            app_log.error("Relay all control failure: coil_address=0x{:04X}, value=0x{:04X}".format(
-                coil_address, value))
+            app_log.error(
+                "Relay all control failure: coil_address=0x{:04X}, value=0x{:04X}".format(
+                    coil_address, value
+                )
+            )
         elif function_code == 0x01:
-            app_log.info("Relay query status successful: bytes_num=0x{:02X}, value=0x{:02X}".format(
-                bytes_num, value))
-            self.relay1_status = (value & 0x01)
+            app_log.info(
+                "Relay query status successful: bytes_num=0x{:02X}, value=0x{:02X}".format(
+                    bytes_num, value
+                )
+            )
+            self.relay1_status = value & 0x01
             self.relay2_status = (value & 0x02) >> 1
             self.relay3_status = (value & 0x04) >> 2
             self.relay4_status = (value & 0x08) >> 3
@@ -314,74 +378,103 @@ class ModbusRTU:
             app_log.debug("Relay 7 Status: {}".format(self.relay7_status))
             app_log.debug("Relay 8 Status: {}".format(self.relay8_status))
             msg_id += 1
-            mqtt_client.publish(property_publish_topic.encode(
-                'utf-8'), msg_all_status.format(msg_id, self.relay1_status, self.relay2_status, self.relay3_status, self.relay4_status,
-                                                self.relay5_status, self.relay6_status, self.relay7_status, self.relay8_status).encode('utf-8'))
+            mqtt_client.publish(
+                property_publish_topic.encode("utf-8"),
+                msg_all_status.format(
+                    msg_id,
+                    self.relay1_status,
+                    self.relay2_status,
+                    self.relay3_status,
+                    self.relay4_status,
+                    self.relay5_status,
+                    self.relay6_status,
+                    self.relay7_status,
+                    self.relay8_status,
+                ).encode("utf-8"),
+            )
         elif function_code == 0x81:
-            app_log.error("Relay query status failure: bytes_num=0x{:02X}, value=0x{:02X}".format(
-                bytes_num, value))
+            app_log.error(
+                "Relay query status failure: bytes_num=0x{:02X}, value=0x{:02X}".format(
+                    bytes_num, value
+                )
+            )
         elif function_code == 0x03:
             if address == self.humiture_device_address:
-                app_log.info("Humiture query successful: bytes_num=0x{:02X}, humidity=0x{:04X}, temperature=0x{:04X}".format(
-                    bytes_num, humidity, temperature))
+                app_log.info(
+                    "Humiture query successful: bytes_num=0x{:02X}, humidity=0x{:04X}, temperature=0x{:04X}".format(
+                        bytes_num, humidity, temperature
+                    )
+                )
                 if humidity == 0x0000 or temperature == 0x0000:
-                    app_log.error("Humiture query failure: bytes_num=0x{:02X}, humidity=0x{:04X}, temperature=0x{:04X}".format(
-                        bytes_num, humidity, temperature))
+                    app_log.error(
+                        "Humiture query failure: bytes_num=0x{:02X}, humidity=0x{:04X}, temperature=0x{:04X}".format(
+                            bytes_num, humidity, temperature
+                        )
+                    )
                 else:
                     self.humidity = humidity / 10
                     self.temperature = temperature / 10
                     app_log.debug("humidity: {}".format(self.humidity))
                     app_log.debug("temperature: {}".format(self.temperature))
                     msg_id += 1
-                    mqtt_client.publish(property_publish_topic.encode(
-                        'utf-8'), msg_temperature_humidity.format(msg_id, self.temperature, self.humidity).encode('utf-8'))
+                    mqtt_client.publish(
+                        property_publish_topic.encode("utf-8"),
+                        msg_temperature_humidity.format(
+                            msg_id, self.temperature, self.humidity
+                        ).encode("utf-8"),
+                    )
             elif address == self.co2_device_address:
-                app_log.info("CO2 query successful: bytes_num=0x{:02X}, co2=0x{:04X}".format(
-                    bytes_num, value))
+                app_log.info(
+                    "CO2 query successful: bytes_num=0x{:02X}, co2=0x{:04X}".format(
+                        bytes_num, value
+                    )
+                )
                 self.co2 = value
                 app_log.debug("CO2: {}".format(self.co2))
                 msg_id += 1
-                mqtt_client.publish(property_publish_topic.encode(
-                    'utf-8'), msg_co2.format(msg_id, self.co2).encode('utf-8'))
+                mqtt_client.publish(
+                    property_publish_topic.encode("utf-8"),
+                    msg_co2.format(msg_id, self.co2).encode("utf-8"),
+                )
             elif address == self.nh3_device_address:
-                app_log.info("NH3 query successful: bytes_num=0x{:02X}, nh3=0x{:04X}".format(
-                    bytes_num, value))
+                app_log.info(
+                    "NH3 query successful: bytes_num=0x{:02X}, nh3=0x{:04X}".format(
+                        bytes_num, value
+                    )
+                )
                 self.nh3 = value
                 app_log.debug("NH3: {}".format(self.nh3))
                 msg_id += 1
-                mqtt_client.publish(property_publish_topic.encode(
-                    'utf-8'), msg_nh3.format(msg_id, self.nh3).encode('utf-8'))
+                mqtt_client.publish(
+                    property_publish_topic.encode("utf-8"),
+                    msg_nh3.format(msg_id, self.nh3).encode("utf-8"),
+                )
 
     def control_single_relay(self, relay_number, state):
         coil_address = relay_number - 1
         value = 0xFF00 if state else 0x0000
-        message = self.build_message(
-            self.do_device_address, 0x05, coil_address, value)
+        message = self.build_message(self.do_device_address, 0x05, coil_address, value)
         self.send_message(message)
 
     def control_all_relay(self, state):
         value = 0xFF if state else 0x00
-        message = self.build_do_all_message(0x0f, 0x0000, 0x0008, 0x01, value)
+        message = self.build_do_all_message(0x0F, 0x0000, 0x0008, 0x01, value)
         self.send_message(message)
 
     def query_relay_status(self):
-        message = self.build_message(
-            self.do_device_address, 0x01, 0x0000, 0x0008)
+        message = self.build_message(self.do_device_address, 0x01, 0x0000, 0x0008)
         self.send_message(message)
 
     def query_humiture_status(self):
-        message = self.build_message(
-            self.humiture_device_address, 0x03, 0x0000, 0x0002)
+        message = self.build_message(self.humiture_device_address, 0x03, 0x0000, 0x0002)
         self.send_message(message)
 
     def query_co2_status(self):
-        message = self.build_message(
-            self.co2_device_address, 0x03, 0x0002, 0x0001)
+        message = self.build_message(self.co2_device_address, 0x03, 0x0002, 0x0001)
         self.send_message(message)
 
     def query_nh3_status(self):
-        message = self.build_message(
-            self.nh3_device_address, 0x03, 0x0002, 0x0001)
+        message = self.build_message(self.nh3_device_address, 0x03, 0x0002, 0x0001)
         self.send_message(message)
 
 
@@ -390,11 +483,15 @@ def cell_location_task():
     while True:
         utime.sleep(86400)
         cell_location = cellLocator.getLocation(
-            "www.queclocator.com", 80, "qa6qTK91597826z6", 8, 1)
+            "www.queclocator.com", 80, "qa6qTK91597826z6", 8, 1
+        )
         msg_id += 1
-        mqtt_client.publish(property_publish_topic.encode(
-            'utf-8'), msg_cellLocator.format
-            (msg_id, cell_location[0], cell_location[1], cell_location[2]).encode('utf-8'))
+        mqtt_client.publish(
+            property_publish_topic.encode("utf-8"),
+            msg_cellLocator.format(
+                msg_id, cell_location[0], cell_location[1], cell_location[2]
+            ).encode("utf-8"),
+        )
 
 
 def sim_task():
@@ -403,8 +500,10 @@ def sim_task():
         sim_imsi = sim.getImsi()
         sim_iccid = sim.getIccid()
         msg_id += 1
-        mqtt_client.publish(property_publish_topic.encode(
-            'utf-8'), msg_sim.format(msg_id, sim_imsi, sim_iccid).encode('utf-8'))
+        mqtt_client.publish(
+            property_publish_topic.encode("utf-8"),
+            msg_sim.format(msg_id, sim_imsi, sim_iccid).encode("utf-8"),
+        )
         utime.sleep(7200)
 
 
@@ -436,87 +535,86 @@ def nh3_task():
 
 def mqtt_sub_cb(topic, msg):
     global state, mqtt_sub_msg
-    app_log.info("Subscribe Recv: Topic={},Msg={}".format(
-        topic.decode(), msg.decode()))
+    app_log.info("Subscribe Recv: Topic={},Msg={}".format(topic.decode(), msg.decode()))
     mqtt_sub_msg = ujson.loads(msg.decode())
     state = 1
-    app_log.debug(mqtt_sub_msg['params'])
+    app_log.debug(mqtt_sub_msg["params"])
 
 
 def process_relay_logic():
     global state, msg_id, mqtt_sub_msg
 
-    if 'code' in mqtt_sub_msg:
-        if mqtt_sub_msg['code'] == 200:
-            app_log.debug('post_reply, code is 200')
+    if "code" in mqtt_sub_msg:
+        if mqtt_sub_msg["code"] == 200:
+            app_log.debug("post_reply, code is 200")
             state = 0
             mqtt_sub_msg = {}
             return
 
-    if 'method' not in mqtt_sub_msg:
-        app_log.error('method is missing')
-    elif not mqtt_sub_msg['method']:
-        app_log.error('method is empty')
-    elif 'thing.service.query_humiture' in mqtt_sub_msg['method']:
+    if "method" not in mqtt_sub_msg:
+        app_log.error("method is missing")
+    elif not mqtt_sub_msg["method"]:
+        app_log.error("method is empty")
+    elif "thing.service.query_humiture" in mqtt_sub_msg["method"]:
         modbus_rtu.query_humiture_status()
         state = 0
         mqtt_sub_msg = {}
         return
-    elif 'thing.service.query_co2' in mqtt_sub_msg['method']:
+    elif "thing.service.query_co2" in mqtt_sub_msg["method"]:
         modbus_rtu.query_co2_status()
         state = 0
         mqtt_sub_msg = {}
         return
-    elif 'thing.service.query_nh3' in mqtt_sub_msg['method']:
+    elif "thing.service.query_nh3" in mqtt_sub_msg["method"]:
         modbus_rtu.query_nh3_status()
         state = 0
         mqtt_sub_msg = {}
         return
 
-    if 'params' not in mqtt_sub_msg:
-        app_log.error('params is missing')
-    elif not mqtt_sub_msg['params']:
-        app_log.error('params is empty')
-    elif 'ALLNO' in mqtt_sub_msg['params']:
-        if mqtt_sub_msg['params']['ALLNO'] == 1:
+    if "params" not in mqtt_sub_msg:
+        app_log.error("params is missing")
+    elif not mqtt_sub_msg["params"]:
+        app_log.error("params is empty")
+    elif "ALLNO" in mqtt_sub_msg["params"]:
+        if mqtt_sub_msg["params"]["ALLNO"] == 1:
             modbus_rtu.control_all_relay(True)
         else:
             modbus_rtu.control_all_relay(False)
     else:
-        for key, value in mqtt_sub_msg['params'].items():
+        for key, value in mqtt_sub_msg["params"].items():
             if value == 1:
-                if key == 'NO1':
+                if key == "NO1":
                     modbus_rtu.control_single_relay(1, True)
-                elif key == 'NO2':
+                elif key == "NO2":
                     modbus_rtu.control_single_relay(2, True)
-                elif key == 'NO3':
+                elif key == "NO3":
                     modbus_rtu.control_single_relay(3, True)
-                elif key == 'NO4':
+                elif key == "NO4":
                     modbus_rtu.control_single_relay(4, True)
-                elif key == 'NO5':
+                elif key == "NO5":
                     modbus_rtu.control_single_relay(5, True)
-                elif key == 'NO6':
+                elif key == "NO6":
                     modbus_rtu.control_single_relay(6, True)
-                elif key == 'NO7':
+                elif key == "NO7":
                     modbus_rtu.control_single_relay(7, True)
-                elif key == 'NO8':
+                elif key == "NO8":
                     modbus_rtu.control_single_relay(8, True)
             else:
-                if key == 'NO1':
+                if key == "NO1":
                     modbus_rtu.control_single_relay(1, False)
-                elif key == 'NO2':
+                elif key == "NO2":
                     modbus_rtu.control_single_relay(2, False)
-                elif key == 'NO3':
+                elif key == "NO3":
                     modbus_rtu.control_single_relay(3, False)
-                elif key == 'NO4':
+                elif key == "NO4":
                     modbus_rtu.control_single_relay(4, False)
-                elif key == 'NO5':
+                elif key == "NO5":
                     modbus_rtu.control_single_relay(5, False)
-                elif key == 'NO6':
+                elif key == "NO6":
                     modbus_rtu.control_single_relay(6, False)
-                elif key == 'NO7':
+                elif key == "NO7":
                     modbus_rtu.control_single_relay(7, False)
-                elif key == 'NO8':
+                elif key == "NO8":
                     modbus_rtu.control_single_relay(8, False)
 
     modbus_rtu.query_relay_status()
@@ -524,32 +622,37 @@ def process_relay_logic():
     mqtt_sub_msg = {}
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     utime.sleep(5)
-    pdpCtx = dataCall.getPDPContext(1)
-    app_log.info("pdpCtx:{}".format(pdpCtx))
-    if pdpCtx != -1:
-        if pdpCtx[1] != usrConfig['apn']:
-            ret = dataCall.setPDPContext(
-                1, 0, usrConfig['apn'], usrConfig['username'], usrConfig['password'], 0)
-            if ret == 0:
-                app_log.info('APN config success.')
-                Power.powerRestart()
-            else:
-                app_log.info('APN config failed.')
-        else:
-            app_log.info('APN configured.')
-    else:
-        app_log.info('get PDP Context failed.')
+    # pdpCtx = dataCall.getPDPContext(1)
+    # app_log.info("pdpCtx:{}".format(pdpCtx))
+    # if pdpCtx != -1:
+    #     if pdpCtx[1] != usrConfig["apn"]:
+    #         ret = dataCall.setPDPContext(
+    #             1, 0, usrConfig["apn"], usrConfig["username"], usrConfig["password"], 0
+    #         )
+    #         if ret == 0:
+    #             app_log.info("APN config success.")
+    #             Power.powerRestart()
+    #         else:
+    #             app_log.info("APN config failed.")
+    #     else:
+    #         app_log.info("APN configured.")
+    # else:
+    #     app_log.info("get PDP Context failed.")
 
     checknet.poweron_print_once()
     stagecode, subcode = checknet.wait_network_connected(30)
     if stagecode == 3 and subcode == 1:
-        app_log.info('Network connection successful!')
+        app_log.info("Network connection successful!")
 
         uart_inst = Uart2()
-        modbus_rtu = ModbusRTU(do_device_address=do_device_address,
-                               humiture_device_address=humiture_device_address, co2_device_address=co2_device_address, nh3_device_address=nh3_device_address)
+        modbus_rtu = ModbusRTU(
+            do_device_address=do_device_address,
+            humiture_device_address=humiture_device_address,
+            co2_device_address=co2_device_address,
+            nh3_device_address=nh3_device_address,
+        )
         uart_inst.set_modbus_rtu_instance(modbus_rtu)
 
         _thread.start_new_thread(watch_dog_task, ())
@@ -674,17 +777,31 @@ if __name__ == '__main__':
         ProductKey = "k1lpuw8kM8O"  # 产品标识
         # DeviceName = "QH-D200-485-001"  # 设备名称
         # DeviceName = "QH-D200-485-002"  # 设备名称
-        DeviceName = "QH-D200-485-003"  # 设备名称
+        # DeviceName = "QH-D200-485-003"  # 设备名称
         # DeviceName = "QH-D200-485-004"  # 设备名称
-        # DeviceName = "QH-D200-485-005"  # 设备名称
+        DeviceName = "QH-D200-485-005"  # 设备名称
         # DeviceName = "QH-D200-485-006"  # 设备名称
         # DeviceName = "QH-D200-485-007"  # 设备名称
         # DeviceName = "QH-D200-485-008"  # 设备名称
 
-        property_subscribe_topic = "/sys" + "/" + ProductKey + "/" + \
-            DeviceName + "/" + "thing/service/property/set"
-        property_publish_topic = "/sys" + "/" + ProductKey + "/" + \
-            DeviceName + "/" + "thing/event/property/post"
+        property_subscribe_topic = (
+            "/sys"
+            + "/"
+            + ProductKey
+            + "/"
+            + DeviceName
+            + "/"
+            + "thing/service/property/set"
+        )
+        property_publish_topic = (
+            "/sys"
+            + "/"
+            + ProductKey
+            + "/"
+            + DeviceName
+            + "/"
+            + "thing/event/property/post"
+        )
 
         # 创建一个mqtt实例
         # mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-001|securemode=2,signmethod=hmacsha256,timestamp=1721809948760|",
@@ -701,12 +818,12 @@ if __name__ == '__main__':
         #                          password="0f70269947a9b2adbda87ac981fff9bb9ea5f212ae6ff667316199d3774fe369",
         #                          keepalive=60, reconn=True)
 
-        mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-003|securemode=2,signmethod=hmacsha256,timestamp=1722934767615|",
-                                 server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
-                                 port=1883,
-                                 user="QH-D200-485-003&k1lpuw8kM8O",
-                                 password="9516ef6dcb7660e678be2d4d258206efff03f28cb6360fe559f9a0e85fe7802b",
-                                 keepalive=60, reconn=True)
+        # mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-003|securemode=2,signmethod=hmacsha256,timestamp=1722934767615|",
+        #                          server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
+        #                          port=1883,
+        #                          user="QH-D200-485-003&k1lpuw8kM8O",
+        #                          password="9516ef6dcb7660e678be2d4d258206efff03f28cb6360fe559f9a0e85fe7802b",
+        #                          keepalive=60, reconn=True)
 
         # mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-004|securemode=2,signmethod=hmacsha256,timestamp=1722995169908|",
         #                          server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
@@ -715,12 +832,15 @@ if __name__ == '__main__':
         #                          password="9e5225e1c1519140a46c6a47ffa2e7c3096ab158e3660a9728ca3ee0f5969bee",
         #                          keepalive=60, reconn=True)
 
-        # mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-005|securemode=2,signmethod=hmacsha256,timestamp=1722995243424|",
-        #                          server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
-        #                          port=1883,
-        #                          user="QH-D200-485-005&k1lpuw8kM8O",
-        #                          password="ba0ab4e907be169cfb63e86eb854957b4883df65dcaca702ef6d2fde962790dc",
-        #                          keepalive=60, reconn=True)
+        mqtt_client = MqttClient(
+            clientid="k1lpuw8kM8O.QH-D200-485-005|securemode=2,signmethod=hmacsha256,timestamp=1722995243424|",
+            server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
+            port=1883,
+            user="QH-D200-485-005&k1lpuw8kM8O",
+            password="ba0ab4e907be169cfb63e86eb854957b4883df65dcaca702ef6d2fde962790dc",
+            keepalive=60,
+            reconn=True,
+        )
 
         # mqtt_client = MqttClient(clientid="k1lpuw8kM8O.QH-D200-485-006|securemode=2,signmethod=hmacsha256,timestamp=1722997119995|",
         #                          server="iot-06z00i0fhc1e85a.mqtt.iothub.aliyuncs.com",
@@ -754,16 +874,19 @@ if __name__ == '__main__':
         try:
             mqtt_client.connect()
         except Exception as e:
-            app_log.error('e=%s' % e)
+            app_log.error("e=%s" % e)
 
         # 订阅主题
         app_log.info(
-            "Connected to aliyun, subscribed to: {}".format(property_subscribe_topic))
-        mqtt_client.subscribe(property_subscribe_topic.encode('utf-8'), qos=0)
+            "Connected to aliyun, subscribed to: {}".format(property_subscribe_topic)
+        )
+        mqtt_client.subscribe(property_subscribe_topic.encode("utf-8"), qos=0)
 
         msg_id += 1
-        mqtt_client.publish(property_publish_topic.encode(
-            'utf-8'), msg_netStatus.format(msg_id, stagecode, subcode).encode('utf-8'))
+        mqtt_client.publish(
+            property_publish_topic.encode("utf-8"),
+            msg_netStatus.format(msg_id, stagecode, subcode).encode("utf-8"),
+        )
 
         mqtt_client.loop_forever()
 
@@ -778,5 +901,8 @@ if __name__ == '__main__':
                 process_relay_logic()
             utime.sleep_ms(50)
     else:
-        app_log.error('Network connection failed! stagecode = {}, subcode = {}'.format(
-            stagecode, subcode))
+        app_log.error(
+            "Network connection failed! stagecode = {}, subcode = {}".format(
+                stagecode, subcode
+            )
+        )
